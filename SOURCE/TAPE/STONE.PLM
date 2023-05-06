@@ -1,0 +1,186 @@
+STONE: DO;
+
+$CODE
+
+$INCLUDE(:F0:VIDEO2.EXT)
+$INCLUDE(:F0:KEYB.EXT)
+$INCLUDE(:F0:SYSTEM.EXT)
+
+$INCLUDE(:F0:GAME.LIT)
+$INCLUDE(:F0:DATA.EXT)
+$INCLUDE(:F0:POLE.EXT)
+$INCLUDE(:F0:GPROC.EXT)
+
+
+
+/*
+  перемещаем камешек
+*/
+tolkstone: procedure(sx,sy) public;
+  declare
+    (sx,sy,elemDown,elemNext) byte;
+
+    elemDown=getelem(sx,sy+1);
+    elemNext=getelem(sx+bDirection,sy);
+    call showman;
+    do while (elemDown = ELEM$NULL) or (elemDown = ELEM$FIRE) or
+             (elemNext = ELEM$NULL) or (elemNext = ELEM$FIRE);
+        /* пока снизу и сбоку пустота (или огонь) - движемся */
+        call setelem(sx,sy,ELEM$NULL);
+        if (elemDown = ELEM$NULL) or (elemDown=ELEM$FIRE) then
+            sy = sy+1;
+        else if (elemNext = ELEM$NULL) or (elemNext = ELEM$FIRE) then
+            sx = sx+bDirection;
+        if getelem(sx, sy) = ELEM$FIRE then
+            call anmDelete(sx,sy);     /* удаляем огонь из анимации */
+        call setelem(sx,sy,ELEM$STONE);
+        call pause;
+        elemDown = getelem(sx,sy+1);
+        elemNext = getelem(sx+bDirection,sy);
+    end;
+    call beep;
+end;
+
+/*
+  падение камня
+*/
+fallston: procedure(x,y) public;
+  declare
+    (x,y,p,j) byte;
+
+    p = getelem(x,y+1);
+    j = 0;
+    do while (p = ELEM$NULL) or (p = ELEM$FIRE);
+        /* падаем пока снизу пустота или огонь */
+        call setelem(x,y,ELEM$NULL);
+        y = y+1;
+        if getelem(x,y) = ELEM$FIRE then
+            call anmDelete(x,y);       /* удаляем огонь из анимации */
+        call setelem(x,y,ELEM$STONE);
+        p = getelem(x,y+1);
+        j = 1;
+        call pause;
+    end;
+    if j = 1 then
+        call beep;
+end;
+
+
+
+/*
+  Сгорание бревнышка
+*/
+fire: procedure(u,x,y) public;
+  declare
+    (u,x,y) byte,
+    i byte;
+
+    if u = ELEM$FIRE then do;
+        do i = 0 to LAST(bmpFireBeamImg);
+            call vidPutSprite(LAB$X+x,LAB$Y+y, bmpFireBeamImg(i));
+            call pause;
+            call pause;
+        end;
+        call setelem(x,y,ELEM$NULL);
+        call beep;
+    end;
+end;
+
+
+/*
+  падение бревна
+*/
+fallbrew: procedure(x,y) public;
+  declare
+    (x,y,p,j) byte;
+
+    j=0;
+    p = getelem(x,y+1);
+    call fire(p,x,y);
+    do while p=ELEM$NULL;
+        call setelem(x,y,ELEM$NULL);
+        y = y+1;
+        call setelem(x,y,ELEM$BEAM);
+        call pause;
+        p=getelem(x,y+1);
+        call fire(p,x,y);
+        j = 1;
+    end;
+    if j=1 then ;
+        call beep;
+end;
+
+/*
+  проверяет возможность хода игрока в ячейку со знчением 'a'
+  возвращает TRUE если можно
+*/
+canw: procedure(a) byte public;
+  declare
+    a byte;
+
+    if (a = ELEM$NULL) or (a = ELEM$KEY) or (a = ELEM$SWITCH) or
+       (a = ELEM$EXIT) or (a = ELEM$LIFT) then
+        return 1;
+    /* в остальные типы ячеек игрок пройти не может */
+    return 0;
+end;
+
+
+/*
+  падение игрока
+*/
+fallman: procedure public;
+  declare
+     ty byte,
+    (i,a) byte;
+
+    ty = my+1;
+
+    a = getelem(mx,my+1);
+    do while canw(a) = 1; /* пока под игроком NULL,KEY,SWITCH,LIFT or EXIT */
+        call showman;
+        call pause;
+        call hideman;
+        my = my+1;
+        a = getelem(mx,my+1);
+    end;
+end;
+
+
+/*
+  сработала выключалка, убираем все мешалки
+*/
+sekira: procedure public;
+  declare
+    (x,y,h) byte;
+
+    call beep;
+    do y = 0 to 14;
+        do x = 0 to 19;
+            if getelem(x,y) = ELEM$BARRIER then
+                call setelem(x,y,ELEM$NULL);
+        end;
+        call anmUpdate;
+    end;
+
+    do y = 0 to 14;
+        do x = 0 to 19;
+            h = getelem(x,14-y);
+            if h = ELEM$BEAM then
+                call fallbrew(x,14-y);
+            if h = ELEM$STONE then
+                call fallston(x,14-y);
+            if getelem(mx,my+1) = ELEM$NULL then do;
+                call hideman;
+                call fallman;
+                call showman;
+            end;
+        end;
+        call anmUpdate;
+    end;
+end;
+
+
+end;
+
+

@@ -1,0 +1,60 @@
+/*
+  типы элементов в игре
+*/
+declare
+  ELEM$NULL    literally '0',
+  ELEM$WALL    literally '1', /* стена*/
+  ELEM$KEY     literally '2', /* ключ*/
+  ELEM$LIFT    literally '3', /* лифт*/
+  ELEM$BARRIER literally '4', /* мешалка*/
+  ELEM$BEAM    literally '5', /*бревно*/
+  ELEM$STONE   literally '6', /*камень*/
+  ELEM$BRIDG   literally '7', /*дорожка*/
+  ELEM$HERO    literally '8',
+  ELEM$SWITCH  literally '9', /*вырезалка*/
+  ELEM$FIRE    literally '10', /*огонь*/
+  ELEM$EXIT    literally '11'; /*выход с уровня*/
+
+
+/*
+  структура анимации в игре
+*/
+declare ANIM literally 'structure (
+  fActive  byte,
+  bPosX    byte,
+  bPosY    byte,
+  bCount   byte,
+  bFrame   byte,
+  bVidX    byte,
+  bVidY    byte,
+  pImages  address)';
+
+declare
+  ANIM$FPS literally '6';       /* время смены кадра (в 1/50 секунды) */
+
+
+/*
+  координаты начала отрисовки уровня
+*/
+declare
+  LAB$X         literally '6',
+  LAB$Y         literally '4';
+
+
+/*
+  структура для патча справки
+*/
+declare HLPIMG literally 'structure (
+  x    byte,
+  y    byte,
+  nImg byte)';
+
+
+/*
+  структура строк с координатами
+*/
+DECLARE POSSTR LITERALLY 'STRUCTURE (
+  x        byte,
+  y        byte,
+  datas(1) byte)';
+

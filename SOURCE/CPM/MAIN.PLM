@@ -1,0 +1,140 @@
+/*****************************************************************************
+ *                                                                           *
+ * CP/M game "Dvigalka", for PK8000                                          *
+ * Copyright (C) 2023 Andrey Hlus                                            *
+ *                                                                           *
+ * Ported from Apogey BK-01, (C) Kakos_nonos                                 *
+ *                                                                           *
+ *****************************************************************************/
+GAME: DO;
+
+$CODE
+
+/* формируем переход на начало кода */
+declare JUMP byte data(0C3h);
+declare JADR address data(.MYENTRY-3); /* with stack initialize */
+
+
+$INCLUDE(:F0:VIDEO2.EXT)
+$INCLUDE(:F0:VECTOR.EXT)
+$INCLUDE(:F0:STRING.EXT)
+$INCLUDE(:F0:KEYB.EXT)
+$INCLUDE(:F0:FILEIO.EXT)
+
+$INCLUDE(:F0:GAME.LIT)
+$INCLUDE(:F0:DATA.EXT)
+$INCLUDE(:F0:GPROC.EXT)
+$INCLUDE(:F0:SYSTEM.EXT)
+/*
+declare
+  mKeys(*) byte public data(KEY$LEFT, KEY$UP, KEY$DOWN, KEY$RIGHT);
+*/
+
+
+doLight: procedure(addr, step, col1, col2);
+  declare
+    (addr,step) address,
+    (col1,col2) byte,
+    (i,j) byte,
+    (tmp,k,incr) address;
+
+    incr = step * (32*8);
+
+    do i = 0 to 5;
+        tmp = addr;
+        do j = 0 to 7;
+            call vidClrLine(addr, 32, col1);
+            do k = 0 to 160;
+            end;
+            call vidClrLine(addr, 32, col2);
+            addr = addr+step;
+        end;
+        addr = tmp + incr;
+    end;
+end;
+
+
+doTitle: procedure;
+  declare
+    k address;
+
+    /* выводим название на экран, погасив палитру */
+    call vidClsCol(0h);
+    call memcpy(.titCG, vidGetFont(1), LENGTH(titCG));
+    call vidOutStringXY(0, 9, .title);
+
+    /* теперь подсвечиваем */
+    call doLight(vidColAddr(0, 14)+7, 0FFFFh, 0F0h, 40h);
+    call doLight(vidColAddr(0, 9), 1, 0Fh, 5h);
+
+    k = 0;
+    do while (kbHit = 0) and (k < 30000);
+        k = k + 1;
+    end;
+    do while (kbHit > 0);
+      k = GetCh;
+    end;
+end;
+
+
+/*
+  Создание списка stc-файлов на текущем диске
+*/
+findMusic: procedure;
+  declare
+    memPtr address,
+    pSrc address,
+    n byte,
+    size based memPtr byte;
+
+    memPtr = curMusic := (musList := .MEMORY);
+    nMusic = 0;
+    pSrc = Find$First(0, .('????????STC'));
+    do while pSrc <> 0;
+        /* вставляем имя файла в список */
+        call memcpy(pSrc+1, memPtr+1, 11);
+        memPtr = memPtr + 12;
+        nMusic = nMusic + 1;
+        pSrc = Find$Next;
+    end;
+    ioBuffer = memPtr;
+    ioBufLen = shr(8800h - memPtr, 7);  /* div 128 */
+    memPtr = musList;
+    n = nMusic;
+    do while n > 0;
+        pSrc = fSize(memPtr+1);
+        if pSrc < 255 then
+            size = LOW(pSrc);
+        else
+            size = 0;
+       n = n-1;
+       memPtr = memPtr + 12;
+    end;
+end;
+
+DoGame: procedure;
+    call findMusic;
+    call doTitle;
+    call play;
+end;
+
+
+
+MYENTRY:
+    /* инициализируем систему */
+    call InitIRQ;
+    call vidInit;
+    call vidSetDefFont(.MEMORY);
+    call KbInit;
+
+    call DoGame;
+
+    /* восстанавливаем настройки по дефолту */
+    call KbDone;
+    call vidSetDefFont(.MEMORY);
+    call vidDone;
+    call DoneIRQ;
+    /* и уходим */
+    call Exit;
+end GAME;
+eof

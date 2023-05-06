@@ -1,0 +1,39 @@
+putelem: procedure(a) external;
+  declare
+    a byte;
+end;
+
+
+drawpole: procedure external;
+end;
+
+loadlevel: procedure(n) external;
+  declare
+    n byte;
+end;
+
+setelem: procedure(x,y,e) external;
+  declare
+    (x,y,e) byte;
+end;
+
+getelem: procedure(x,y) byte external;
+  declare
+    (x,y) byte;
+end;
+
+
+showman: procedure external;
+end;
+
+hideman: procedure external;
+end;
+
+moveman: procedure external;
+end;
+
+jumpman: procedure external;
+end;
+
+manwbeam: procedure external;
+end;

@@ -1,0 +1,671 @@
+GPROC: DO;
+
+$CODE
+
+
+$INCLUDE(:F0:VIDEO2.EXT)
+$INCLUDE(:F0:KEYB.EXT)
+$INCLUDE(:F0:STRING.EXT)
+$INCLUDE(:F0:SYSTEM.EXT)
+$INCLUDE(:F0:VECTOR.EXT)
+
+$INCLUDE(:F0:GAME.LIT)
+$INCLUDE(:F0:DATA.EXT)
+$INCLUDE(:F0:ABOUT.EXT)
+$INCLUDE(:F0:POLE.EXT)
+$INCLUDE(:F0:STONE.EXT)
+
+
+
+declare
+  anmTicks byte,
+  ticks byte;
+
+
+/*
+------------------------------------------------------------------------------
+  Анимация
+------------------------------------------------------------------------------
+*/
+anmInsert: procedure(x,y,frm,img) public;
+  declare
+    (x,y) byte,
+    frm byte,
+    img address,
+    n byte,
+    ptr address,
+    anm based ptr ANIM;
+
+    ptr = .tblAnim(0);
+    n = 0;
+    do while (anm.fActive > 0) and (n < LENGTH(tblAnim));
+        ptr = ptr + SIZE(anm);
+        n = n + 1;
+    end;
+    if n < LENGTH(tblAnim) then do;
+        anm.fActive = 1;
+        anm.bPosX = x;
+        anm.bPosY = y;
+        anm.bCount = 0;
+        anm.bFrame = frm;
+        anm.bVidX = x+LAB$X;
+        anm.bVidY = y+LAB$Y;
+        anm.pImages = img;
+    end;
+end;
+
+anmDelete: procedure(x, y) public;
+  declare
+    (x, y) byte,
+    n byte,
+    ptr address,
+    anm based ptr ANIM;
+
+    ptr = .tblAnim(0);
+    n = 0;
+    do while n < LENGTH(tblAnim);
+        if anm.fActive > 0 then do;
+            if (anm.bPosX = x) and (anm.bPosY = y) then do;
+                anm.fActive = 0;
+                n = LENGTH(tblAnim);
+            end;
+        end;
+        ptr = ptr + SIZE(anm);
+        n = n + 1;
+    end;
+end;
+
+anmInit: procedure public;
+  declare
+    h address,
+    (i,j,n) byte;
+
+    do n = 0 to LAST(tblAnim);
+        tblAnim(n).fActive = 0;
+    end;
+
+    h = 0;
+    do j = 0 to 14;
+        do i = 0 to 19;
+            n = pole(h);
+            if n = ELEM$FIRE then
+                call anmInsert(i,j,4,.tblFireImg);
+            else if n = ELEM$LIFT then
+                call anmInsert(i,j,3,.tblLiftImg);
+            h = h + 1;
+        end;
+    end;
+end;
+
+anmUpdate: procedure public;
+  declare
+    ptr address,
+    pImg address,
+    img based pImg(2) address,
+    anm based ptr ANIM,
+    n byte;
+
+    if anmTicks > ANIM$FPS then do;
+        anmTicks = 0;
+        ptr = .tblAnim(0);
+        n = 0;
+        do while n < LENGTH(tblAnim);
+            if anm.fActive > 0 then do;
+                if (anm.bPosX <> mx) or (anm.bPosY <> my) then do;
+                    anm.bCount = anm.bCount+1;
+                    if anm.bCount >= anm.bFrame then
+                        anm.bCount = 0;
+                    pImg = anm.pImages;
+                    call vidPutSprite(anm.bVidX, anm.bVidY, img(anm.bCount));
+                end;
+            end;
+            ptr = ptr + SIZE(anm);
+            n = n + 1;
+        end;
+    end;
+end;
+
+
+
+
+declare
+  oldVector(3) byte;
+
+doInterrupt: procedure;
+    ticks = ticks+1;
+    anmTicks = anmTicks + 1;
+    call ExitIRQ(.oldVector);
+end;
+
+initAnimate: procedure public;
+    call SetVector(.doInterrupt, .oldVector);
+    ticks = 0;
+    anmTicks = 0;
+end;
+
+doneAnimate: procedure public;
+    call DelVector(.oldVector);
+end;
+
+
+/*
+------------------------------------------------------------------------------
+   USE.PLM
+------------------------------------------------------------------------------
+*/
+
+pause: procedure public;
+    do while ticks < 2;
+        call anmUpdate;
+    end;
+    ticks = 0;
+end;
+
+pause05: procedure public;
+    do while ticks < 1;
+        call anmUpdate;
+    end;
+    ticks = 0;
+end;
+
+putnum: procedure(num) public;
+  declare
+    num address,
+    buf address;
+
+    buf = utoa(num);
+    call vidOutString(buf);
+end;
+
+printmes: procedure(adr);
+  declare
+    adr address,
+    str based adr POSSTR;
+
+    call vidOutStringXY(str.x, str.y,.str.datas);
+end;
+
+
+/*
+------------------------------------------------------------------------------
+   PROH.PLM
+------------------------------------------------------------------------------
+*/
+declare
+    (naps,kos) byte,
+    ukp address,
+    ukb based ukp byte;
+
+
+
+declare
+  (mx,my,fKeyFound,fHabar,bDirection,win) byte public;
+
+declare
+  fInLift byte;
+
+
+
+
+setpointp: procedure(n);
+  declare
+    n byte;
+
+    ukp = plevels(n-1);
+    kos = ukb / 16;
+    naps = ukb and 15;
+end;
+
+getfsol: procedure byte;
+  declare
+    bo byte;
+    if kos=255 then do;
+        ukp = ukp + 1;
+        kos = ukb / 16;
+        naps = ukb and 15;
+        /* !!!!!!!!!!!!!!!! что-то непонятное !!!!!!!!!!!!!!!!! */
+        if ukb = 255 then do;
+            do while 1=1;
+            end;
+        end;
+    end;
+    if naps = 0 then bo=mKeys(0);
+    if naps = 1 then bo=mKeys(3);
+    if naps = 2 then bo=mKeys(1);
+    if naps = 3 then bo=mKeys(2);
+    kos = kos-1;
+    return bo;
+end;
+
+
+
+/*
+------------------------------------------------------------------------------
+   SAVE.PLM
+------------------------------------------------------------------------------
+*/
+
+declare
+  (smx,smy,sfHabar,sbDirection,sfKeyFound) byte;
+
+save: procedure;
+  declare
+    i address;
+
+    smx = mx;
+    smy = my;
+    sbDirection = bDirection;
+    sfKeyFound = fKeyFound;
+    sfHabar = fHabar;
+    call memcpy(.pole, .spole, LENGTH(pole));
+    call beep;
+end;
+
+
+load: procedure;
+  declare
+    i address;
+
+    mx = smx;
+    my = smy;
+    bDirection = sbDirection;
+    fKeyFound = sfKeyFound;
+    fHabar = sfHabar;
+    call memcpy(.spole, .pole, LENGTH(pole));
+    call anmInit;
+    call drawpole;
+    call showman;
+end;
+
+
+/*
+------------------------------------------------------------------------------
+   END SAVE.PLM
+------------------------------------------------------------------------------
+*/
+
+doHelp: procedure;
+  declare
+    i byte;
+
+    call vidClsCol(0);
+
+    do i = 0 to 23;
+        call vidOutStringXY(0, i, tblAboutStr(i));
+    end;
+    do i = 0 to LAST(tblAboutImg);
+        call vidPutSprite(tblAboutImg(i).x, tblAboutImg(i).y, tblSprites(tblAboutImg(i).nImg));
+    end;
+
+    i = GetCh;
+    call vidClsCol(0);
+end;
+
+redrawscr: procedure(nt);
+  declare
+    nt byte;
+
+    call drawpole;
+    call showman;
+    call printmes(.uk0);
+    call printmes(.uk1);
+    call printmes(.uk2);
+    call printmes(.uk3);
+    call printmes(.uk4);
+    call printmes(.uk5);
+    call printmes(.uroven);
+    call putnum(nt);
+    call vidOutChar(' ');
+end;
+
+
+newgame: procedure(nt) public;
+  declare
+    nt byte;
+
+    call loadlevel(nt);
+    bDirection=1;
+    win=0;
+    fHabar=0;
+    fKeyFound=0;
+    call redrawscr(nt);
+end;
+
+
+teleport: procedure(x,y) public;
+  declare
+    (x,y) byte,
+    (i,j,k) byte;
+
+    fInLift = 1;
+    do k = 0 to 10;
+        call setelem(mx,my,k);
+        call pause;
+    end;
+    call setelem(mx,my,ELEM$LIFT);
+    do i = 0 to 19;
+        do j = 0 to 14;
+            if (getelem(i,j) = ELEM$LIFT) then do;
+                if (mx <> i) or (my <> j) then do;
+                    x = i;
+                    y = j;
+                end;
+            end;
+        end;
+    end;
+    do k = 0 to 10;
+        call setelem(x,y,k);
+        call pause;
+    end;
+    call setelem(x,y,ELEM$LIFT);
+    mx = x;
+    my = y;
+    call showman;
+end;
+
+
+
+proiti: procedure public;
+    call newgame(curStage);
+    call setpointp(curStage);
+    fGameType = 1;
+end;
+
+
+/*
+  возвращает код "нажатой" клавиши
+*/
+getmov: procedure byte public;
+  declare
+    y byte;
+
+    if fGameType = 0 then
+        do;
+            call kbFlash;
+            do while kbHit = 0;
+                call anmUpdate;
+            end;
+            y = GetCh;
+        end;
+    else
+        y = getfsol;
+    return y;
+end;
+
+/*
+  проверка новой позиции игрока на
+  выключатель, ключ, лифт или огонь
+*/
+checkf: procedure public;
+  declare
+    a byte;
+
+    a = getelem(mx,my);
+    if getelem(mx,my-1) = ELEM$BEAM then do;
+        /* сверху бревно */
+        call setelem(mx,my-1,ELEM$NULL);
+        fHabar = 1;
+        call showman;
+    end;
+    if a = ELEM$SWITCH then do;
+        call setelem(mx,my,ELEM$NULL);
+        call showman;
+        call sekira;
+    end;
+    if a = ELEM$KEY then do;
+        call setelem(mx,my,ELEM$NULL);
+        call showman;
+        call beep;
+        call pause;
+        call pause;
+        call pause;
+        call beep;
+        fKeyFound = 1;
+    end;
+    if (a = ELEM$LIFT) and (fInLift = 0) then
+        call teleport(mx,my);
+    if (a = ELEM$EXIT) and (fKeyFound = 1) then do;
+        if fGameType = 0 then
+            win = 1;
+        else do;
+            fGameType = 0;
+            call newgame(curStage);
+        end;
+    end;
+    if getelem(mx,my+1) = ELEM$FIRE then do;
+        call showman;
+        call beep;
+        call newgame(curStage);
+    end;
+end;
+
+/*
+------------------------------------------------------------------------------
+   WALK.PLM
+------------------------------------------------------------------------------
+*/
+/*
+  перемещение игрока
+  вызывается всегда для хода в направлении bDirection,
+  поэтому параметры можно убрать, сократив код
+*/
+onestepwo: procedure;
+  declare
+    a byte;
+
+    a = getelem(mx+bDirection, my);
+    if canw(a) = 1 then
+        do;
+            /* нет препятствий, ходим */
+            if getelem(mx,my+1) = ELEM$BRIDG then
+                call setelem(mx,my+1,ELEM$NULL);
+
+            call moveman;
+            call checkf;
+            call fallman;
+            call checkf;
+            call showman;
+        end;
+    else do;
+        /* впереди препятствие */
+        if (a = ELEM$STONE) and (getelem(mx+bDirection,my-1) <> ELEM$STONE) then
+            call tolkstone(mx+bDirection,my);
+    end;
+end;
+
+
+/*
+  перемещаемся
+*/
+walkwo: procedure(gi);
+  declare
+    gi byte;
+
+    if gi = mKeys(0) then do;
+        if bDirection = 1 then do;
+            bDirection = 255;
+            call showman;
+            end;
+        else
+            call onestepwo;
+    end;
+    if gi = mKeys(3) then do;
+        if bDirection = 255 then do;
+            bDirection = 1;
+            call showman;
+            end;
+        else
+            call onestepwo;
+    end;
+    if gi = mKeys(1) then do;
+        if (getelem(mx,my-1)=ELEM$NULL) and (canw(getelem(mx+bDirection,my-1)) = 1) then do;
+            call jumpman;
+        end;
+    end;
+    if (gi = mKeys(2)) and (getelem(mx,my-1) = ELEM$NULL) then do;
+        if (getelem(mx+bDirection,my)=ELEM$BEAM) and (getelem(mx+bDirection,my-1)=ELEM$NULL) then do;
+            /* поднимаем бревно */
+            call manwbeam;
+            fHabar = 1;
+            call showman;
+            call setelem(mx+bDirection,my,ELEM$NULL);
+        end;
+    end;
+end;
+
+/*
+  перемещаемся с бревном на плечах
+*/
+walkwi: procedure(gi);
+  declare
+    gi byte,
+    (mo,ka) byte;
+
+    if gi = mKeys(0) then do;
+        if bDirection = 1 then do;
+            bDirection = 255;
+            call showman;
+            end;
+        else do;
+            if getelem(mx-1,my-1) = ELEM$NULL then
+                call onestepwo;
+            else do;
+                if canw(getelem(mx-1,my)) = 1 then do;
+                    fHabar = 0;
+                    mo = mx;
+                    ka = my-1;
+                    call setelem(mx,my-1,ELEM$BEAM);
+                    call onestepwo;
+                    if getelem(mo,ka) = ELEM$BEAM then
+                        call fallbrew(mo,ka);
+                end;
+            end;
+        end;
+    end;
+    if gi = mKeys(3) then do;
+        if bDirection = 255 then do;
+            bDirection = 1;
+            call showman;
+            end;
+        else do;
+            if getelem(mx+1,my-1) = ELEM$NULL then
+                call onestepwo;
+            else do;
+                if canw(getelem(mx+1,my)) = 1 then do;
+                    fHabar = 0;
+                    mo = mx;
+                    ka = my-1;
+                    call setelem(mx,my-1,ELEM$BEAM);
+                    call onestepwo;
+                    if getelem(mo,ka) = ELEM$BEAM then
+                        call fallbrew(mo,ka);
+                end;
+            end;
+        end;
+    end;
+    if gi = mKeys(1) then do;
+        if (getelem(mx,my-1) = ELEM$NULL) and (canw(getelem(mx+bDirection,my-1)) = 1) then do;
+            if (getelem(mx,my-2) = ELEM$NULL) and (getelem(mx+bDirection,my-2) = ELEM$NULL) then do;
+                call jumpman;
+            end;
+        end;
+    end;
+    if (gi = mKeys(2)) and (getelem(mx+bDirection,my-1) = ELEM$NULL) then do;
+        /* бросаем бревно */
+        call hideman;
+        fHabar = 0;
+        call manwbeam;
+        call showman;
+        call setelem(mx+bDirection,my-1,ELEM$BEAM);
+        call fallbrew(mx+bDirection,my-1);
+    end;
+end;
+
+/*
+------------------------------------------------------------------------------
+   END WALK.PLM
+------------------------------------------------------------------------------
+*/
+
+
+/*
+------------------------------------------------------------------------------
+  Игра одной стадии
+------------------------------------------------------------------------------
+*/
+
+DoSelectStage: procedure(cur) byte;
+  declare
+    cur byte,
+    r byte;
+
+    call printmes(.urovent);
+    r = KEY$ESC;
+    do while r <> KEY$ENTER;
+        call vidGotoXY(24,11);  /* номер уровня */
+        call putnum(cur);
+        if (cur < 10) then
+            call vidOutChar(' ');
+        r = GetCh;
+        if r=mKeys(0) then
+            if cur > 1 then
+                cur = cur - 1;
+        if r=mKeys(3) then
+            if cur < 50 then
+                cur = cur+1;
+    end;
+    return cur;
+end;
+
+play: procedure public;
+  declare
+    pu byte;
+
+    fStop = 0;
+
+    call vidClsCol(0);
+    call vidCls;
+    curStage = DoSelectStage(1);
+
+    do while fStop = 0;
+        fGameType = 0;
+        call newgame(curStage);
+        call save;
+        call setpointp(curStage);
+        call initAnimate;
+
+        do while win = 0;
+            pu = getmov;
+            fInLift = 0;
+            if pu = KEY$F1 then do;
+                call doHelp;
+                call redrawscr(curStage);
+            end;
+            if pu = KEY$F2 then do;
+                win = 1;
+                curStage = DoSelectStage(curStage) - 1;
+            end;
+            if pu = KEY$F3 then call save;
+            if pu = KEY$F4 then call load;
+            if pu = KEY$F5 then call proiti;
+            if pu = KEY$ESC then do;
+                fStop = 1;
+                win = 1;
+            end;
+            if fHabar = 0 then
+                call walkwo(pu);
+            else
+                call walkwi(pu);
+        end;
+
+        curStage = curStage + 1;
+        call doneAnimate;
+
+    end;
+
+
+end;
+
+
+
+end;

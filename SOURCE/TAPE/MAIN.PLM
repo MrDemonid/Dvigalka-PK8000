@@ -1,0 +1,104 @@
+/*****************************************************************************
+ *                                                                           *
+ * CP/M game "Dvigalka", for PK8000                                          *
+ * Copyright (C) 2023 Andrey Hlus                                            *
+ *                                                                           *
+ * Ported from Apogey BK-01, (C) Kakos_nonos                                 *
+ *                                                                           *
+ *****************************************************************************/
+GAME: DO;
+
+$CODE
+
+declare
+  tape(*) byte data(1Fh, 0A6h, 0DEh, 0BAh, 0CCh, 13h, 7Dh, 74h,
+                    0D0h, 0D0h, 0D0h, 0D0h, 0D0h, 0D0h, 0D0h, 0D0h, 0D0h, 0D0h,
+                    'DVIG  ',
+                    1Fh, 0A6h, 0DEh, 0BAh, 0CCh, 13h, 7Dh, 74h),
+  addr(*) address data(4000h, 8759h, .MYENTRY-3);
+
+$INCLUDE(:F0:VIDEO2.EXT)
+$INCLUDE(:F0:VECTOR.EXT)
+$INCLUDE(:F0:STRING.EXT)
+$INCLUDE(:F0:KEYB.EXT)
+
+$INCLUDE(:F0:GAME.LIT)
+$INCLUDE(:F0:DATA.EXT)
+$INCLUDE(:F0:GPROC.EXT)
+$INCLUDE(:F0:SYSTEM.EXT)
+
+
+
+
+
+doLight: procedure(addr, step, col1, col2);
+  declare
+    (addr,step) address,
+    (col1,col2) byte,
+    (i,j) byte,
+    (tmp,k,incr) address;
+
+    incr = step * (32*8);
+
+    do i = 0 to 5;
+        tmp = addr;
+        do j = 0 to 7;
+            call vidClrLine(addr, 32, col1);
+            do k = 0 to 160;
+            end;
+            call vidClrLine(addr, 32, col2);
+            addr = addr+step;
+        end;
+        addr = tmp + incr;
+    end;
+end;
+
+
+doTitle: procedure;
+  declare
+    k address;
+
+    /* выводим название на экран, погасив палитру */
+    call vidClsCol(0h);
+    call memcpy(.titCG, vidGetFont(1), LENGTH(titCG));
+    call vidOutStringXY(0, 9, .title);
+
+    /* теперь подсвечиваем */
+    call doLight(vidColAddr(0, 14)+7, 0FFFFh, 0F0h, 40h);
+    call doLight(vidColAddr(0, 9), 1, 0Fh, 5h);
+
+    k = 0;
+    do while (kbHit = 0) and (k < 30000);
+        k = k + 1;
+    end;
+    do while (kbHit > 0);
+      k = GetCh;
+    end;
+end;
+
+
+DoGame: procedure;
+    call doTitle;
+    call play;
+end;
+
+
+
+MYENTRY:
+    /* инициализируем систему */
+    call InitIRQ;
+    call vidInit;
+    call vidSetDefFont(.MEMORY);
+    call KbInit;
+
+    call DoGame;
+
+    /* восстанавливаем настройки по дефолту */
+    call KbDone;
+    call vidSetDefFont(.MEMORY);
+    call vidDone;
+    call DoneIRQ;
+    /* и уходим */
+    call Exit;
+end GAME;
+eof

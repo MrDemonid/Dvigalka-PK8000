@@ -1,0 +1,195 @@
+POLE: DO;
+
+$CODE
+
+$INCLUDE(:F0:VIDEO2.EXT)
+
+$INCLUDE(:F0:GAME.LIT)
+$INCLUDE(:F0:DATA.EXT)
+$INCLUDE(:F0:GPROC.EXT)
+$INCLUDE(:F0:STONE.EXT)
+
+
+putelem: procedure(x, y, a) public;
+  declare
+    x byte,
+    y byte,
+    a byte;
+
+    if a = ELEM$STONE then
+        call vidPutSprite(x+LAB$X, y+LAB$Y, tblStoneImg(x and 3));
+    else
+        call vidPutSprite(x+LAB$X, y+LAB$Y, tblSprites(a));
+end;
+
+drawpole: procedure public;
+  declare
+    (i,j,t) byte,
+    h address,
+    ch based h byte;
+
+    h = .pole;
+    do j = 0 to 14;
+        do i = 0 to 19;
+            t = ch;
+            if t <> 8 then
+                call putelem(i, j, t);
+            else do;
+                mx = i;
+                my = j;
+                ch=0;
+            end;
+            h = h + 1;
+        end;
+    end;
+end;
+
+
+loadlevel: procedure(n) public;
+  declare
+    n byte,
+    k byte,
+    (h,f) address,
+    ch based h byte,
+    e based f byte;
+
+    f = levels(n-1);
+    h = .pole;
+
+    do while e<>255;
+        do k = 0 to shr(e,4);
+            ch = e and 0Fh;
+            h = h+1;
+        end;
+        f = f+1;
+    end;
+    /* создаем таблицу объектов анимации */
+    call anmInit;
+end;
+
+
+
+setelem: procedure(x,y,e) public;
+  declare
+    (x,y,e) byte;
+
+    call putelem(x,y, e);
+    pole(shl(double(y),4) + shl(double(y),2) +x) = e;
+    /* pole(20*y+x)=e; */
+end;
+
+getelem: procedure(x,y) byte public;
+  declare
+    (x,y) byte;
+
+    return pole(shl(double(y),4) + shl(double(y),2) +x);
+    /* return pole(20*y+x); */
+end;
+
+/*
+  отображает игрока
+*/
+showman: procedure public;
+    if bDirection = 1 then
+        call vidPutSprite(mx+LAB$X, my+LAB$Y, .bmpHeroR);
+    else
+        call vidPutSprite(mx+LAB$X, my+LAB$Y, .bmpHeroL);
+
+    if fHabar = 1 then do;
+        call putelem(mx,my-1, ELEM$BEAM);
+    end;
+end;
+
+
+hideman: procedure public;
+    call putelem(mx,my, getelem(mx,my));
+    if fHabar = 1 then do;
+        call putelem(mx,my-1, ELEM$NULL);
+    end;
+end;
+
+drawman: procedure(img);
+  declare
+    img address;
+
+    if fHabar = 1 then
+        call putelem(mx,my-1, ELEM$BEAM);
+    call vidPutSprite(mx+LAB$X, my+LAB$Y, img);
+    call pause;
+    call pause05;
+end;
+
+moveman: procedure public;
+  declare
+    ptr address,
+    img based ptr address;
+
+    if bDirection = 1 then
+        ptr = .tblHeroImg(3);
+    else
+        ptr = .tblHeroImg(0);
+
+    call drawman(img);
+    ptr = ptr+2;
+    call hideman;
+    mx = mx + bDirection;
+    call drawman(img);
+    ptr = ptr+2;
+    call showman;
+end;
+
+
+/* прыгаем */
+jumpman: procedure public;
+  declare
+    ptr address,
+    img based ptr address;
+
+    if getelem(mx,my+1) = ELEM$BRIDG then
+        call setelem(mx,my+1,ELEM$NULL);
+
+    if bDirection = 1 then
+        ptr = .tblHeroImg(3);
+    else
+        ptr = .tblHeroImg(0);
+
+    call hideman;
+    call drawman(img);
+
+    call hideman;
+    my = my-1;
+    call drawman(img);
+    ptr = ptr+2;
+    call hideman;
+    mx = mx+bDirection;
+    call drawman(img);
+    call checkf;
+    call fallman;
+    call checkf;
+    call showman;
+
+
+    /*
+    call hideman;
+    my = my-1;
+    call showman;
+    call pause;
+    call hideman;
+    mx = mx+bDirection;
+    call checkf;
+    call fallman;
+    call checkf;
+    call showman;
+    */
+end;
+
+manwbeam: procedure public;
+    call showman;
+    call setelem(mx+bDirection,my-1,ELEM$BEAM);
+    call pause;
+    call setelem(mx+bDirection,my-1,ELEM$NULL);
+end;
+
+
+end;
+

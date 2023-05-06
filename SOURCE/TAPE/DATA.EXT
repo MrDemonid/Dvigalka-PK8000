@@ -1,0 +1,88 @@
+declare title byte external,
+        titCG(40) byte external;
+
+
+
+/*
+  уровни и их прохождение
+*/
+declare levels(50) address external;
+declare plevels(50) address external;
+
+
+/*
+  надписи для справки
+*/
+
+declare
+    uroven byte external,
+    urovent byte external,
+    uk0 byte external,
+    uk1 byte external,
+    uk2 byte external,
+    uk3 byte external,
+    uk4 byte external,
+    uk5 byte external;
+
+
+/*
+  SAVE.PLM
+*/
+declare spole(300) byte external;
+
+/*
+  POLE.PLM
+*/
+declare pole(300) byte external;
+
+declare
+  bmpNull(16)    byte external;
+
+declare
+  bmpHeroL(16)   byte external,
+  bmpHeroR(16)   byte external;
+
+declare
+  tblHeroImg(6)  address external;
+
+
+declare
+  tblFireImg(4)  address external;
+
+declare
+  tblLiftImg(3)  address external;
+
+
+declare
+  tblStoneImg(4) address external;
+
+
+/* null,стена,ключ,телепорт,мешалка,бревно,камень,дорожка,hero,вырезалка,огонь,выход? */
+declare
+  tblSprites(12) address external;
+
+declare
+  bmpFireBeamImg(4) address  external;
+
+
+
+
+/*
+  переменные для игры
+*/
+declare curStage byte external;    /* текущий уровень */
+declare fGameType byte external;   /* тип игры: 0 - обычная, 1 - демо-режим */
+declare fStop byte external;       /* флаг прерывания стадии */
+
+
+declare mKeys(4) byte external;    /* клавиши перемещения игрока */
+
+
+/*
+------------------------------------------------------------------------------
+  Анимация
+------------------------------------------------------------------------------
+*/
+declare tblAnim(16) ANIM external;
+
+

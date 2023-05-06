@@ -1,0 +1,38 @@
+tolkstone: procedure(sx,sy) external;
+  declare
+    (sx,sy) byte;
+end;
+
+
+fire: procedure(u,x,y) external;
+  declare
+    (u,x,y) byte;
+end;
+
+
+fallbrew: procedure(x,y) external;
+  declare
+    (x,y) byte;
+end;
+
+
+fallston: procedure(x,y) external;
+  declare
+    (x,y) byte;
+end;
+
+
+canw: procedure(a) byte external;
+  declare
+    a byte;
+end;
+
+
+fallman: procedure external;
+end;
+
+
+sekira: procedure external;
+end;
+
+

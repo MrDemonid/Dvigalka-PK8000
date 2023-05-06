@@ -1,0 +1,77 @@
+declare
+  (mx,my,fKeyFound,fHabar,bDirection,win) byte external;
+
+
+
+newgame: procedure(nt) external;
+  declare
+    nt byte;
+end;
+
+
+teleport: procedure(x,y) external;
+  declare
+    (x,y) byte;
+end;
+
+
+checkf: procedure external;
+end;
+
+
+proiti: procedure external;
+end;
+
+
+getmov: procedure byte external;
+end;
+
+
+play: procedure external;
+end;
+
+
+/*
+  from USE.PLM
+*/
+
+pause: procedure external;
+end;
+
+pause05: procedure external;
+end;
+
+putnum: procedure(num) external;
+  declare
+    num address;
+end;
+
+
+
+/*
+------------------------------------------------------------------------------
+  Анимация
+------------------------------------------------------------------------------
+*/
+
+/*
+  инициализация таблицы анимации
+*/
+anmInit: procedure external;
+end;
+
+/*
+  обновляет все анимированные объекты
+*/
+anmUpdate: procedure external;
+end;
+
+/*
+  удаляет из анимации объект по заданным координатам
+*/
+anmDelete: procedure(x, y) external;
+  declare
+    (x, y) byte;
+end;
+
+

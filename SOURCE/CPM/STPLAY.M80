@@ -1,0 +1,1037 @@
+$title  ('STC Player')
+        NAME    STPLAY
+
+        CSEG
+
+        extrn SetVector
+        extrn DelVector
+
+        public STINIT
+        public STPLAY
+        public STSTOP
+
+        public plFlag
+        public lenOrd   ; количество позиций в order list
+        public curOrd   ; текущая позиция в order list
+        public patNum   ; номер текущего паттерна
+
+
+
+
+STSTOP:
+        lda     plFlag
+        ori     1
+        sta     plFlag          ; выставляем флаг остановки
+        di
+        mvi     A, 7
+        out     15h             ; номер регистра AY - адрес в спектруме FFFDh
+        mvi     A, 3Fh
+        out     14h
+        mvi     A, 8
+        out     15h
+        mvi     A, 0
+        out     14h
+        mvi     A, 9
+        out     15h
+        mvi     A, 0
+        out     14h
+        mvi     A, 10
+        out     15h
+        mvi     A, 0
+        out     14h
+        ; убираем свой обработчик IRQ
+        lxi     B, OLDISR
+        call    DelVector
+        ret
+
+;------------------------------------------------------------------------
+; Инициализация проигрывателя
+;------------------------------------------------------------------------
+; на входе:
+;    BC - адрес музона
+STINIT:
+        lda     plFlag
+        ani     0FEh
+        sta     plFlag          ; сбрасываем флаг остановки
+        mov     L, C
+        mov     H, B
+        mov     A, M
+        sta     nDelay
+        shld    musAdr+1
+        inx     H
+        call    cnvAdr          ; DE = &OrderList
+        ldax    D
+        inx     D
+        inr     A
+        sta     lenOrd
+        xchg
+        shld    ordAdr
+        xchg
+        call    cnvAdr          ; DE = &Ornaments
+        xchg
+        shld    ornAdr
+        xchg
+        push    D               ; save ornament address
+        call    cnvAdr          ; DE = &Patterns
+        xchg
+        shld    patAdr
+        xchg
+        lxi     H, 1Bh
+        call    musAdr          ; DE = &Samples
+
+        xchg
+        shld    smpAdr
+
+        lxi     H, nulPat
+        mvi     M, 0FFh
+        shld    patA            ; patA = &numPat // ставим заглушку на паттерн
+
+        ; инициализируем остальные данные значением 0x2C
+        lxi     H, ul7c46
+        lxi     D, ul7c46+1
+        lxi     B, 2ch
+        mov     M, B
+  LDIR1: ; ldir
+        mov     A, M
+        stax    D               ; [DE++] = [HL++]
+        inx     H
+        inx     D
+        dcx     B
+        mov     A,B
+        ora     C
+        jnz     LDIR1
+
+        pop     H               ; HL = &Ornaments
+
+        lxi     B, 21h
+        xra     A
+        call    fndRec
+
+        dcr     A               ; A = 0xFF
+        sta     smCntA          ; осталось позиций в сэмпле канала
+        sta     smCntB
+        sta     smCntC
+        mvi     A, 1
+        sta     delCnt
+        inx     H
+        shld    nOrnmA          ; адрес таблицы орнамента
+        shld    nOrnmB
+        shld    nOrnmC
+        call    ldRegs
+
+        ; вешаем обработчик прерывания
+        lxi     B, ISR
+        lxi     D, OLDISR
+        call    SetVector
+        ret
+
+ISR:
+        call    STPLAY
+OLDISR: ; jmp old interrupt
+        ret
+        ret
+        ret
+
+
+
+;------------------------------------------------------------------------
+; поиск элемента в таблице
+;------------------------------------------------------------------------
+; на входе:
+;    A  - номер записи
+;    HL - массив записей
+;    BC - размер одной записи
+; на выходе:
+;    HL - адрес найденной записи
+fndRec:
+        cmp     M               ; это заданный элемент?
+        rz                      ; -> да
+        dad     B               ; нет, переходим к следующему
+        jmp     fndRec
+
+;------------------------------------------------------------------------
+; преобразует смещение от начала файла в абсолютный адрес
+;------------------------------------------------------------------------
+; на входе:
+;    HL - указатель на смещание относительно нач. файла
+;    DE - адрес для результата
+; destroy: BC
+cnvAdr:
+        mov     E, M
+        inx     H
+        mov     D, M
+        inx     H
+        xchg
+  musAdr:
+        lxi     B, 0
+        dad     B
+        xchg
+        ret                     ; return musAddr + [HL++]
+
+
+;------------------------------------------------------------------------
+; извлекает данные из текущего инструмента
+;------------------------------------------------------------------------
+; на входе:
+;     A - текущая позиция в сэмпле [0..31]
+;    IX - &Sample[n]
+; на выходе:
+;    DE - смещение тона (12 бит)
+;     L - громкость
+;     H - значение шума
+;     C - флаг включения шума
+;     B - флаг включения тона
+; destroy: A
+getSmp:
+        mvi     D, 0
+        mov     E, A
+        add     A
+        add     E
+        mov     E, A            ; DE = A*3
+
+        ;add     ix,de
+        lhld    IX
+        dad     D
+        shld    IX              ; IX = &Sample.Data[curPos]
+        ;ld      a,1(ix)
+        inx     H
+        mov     A, M
+        push    PSW
+        ; --
+;        bit     7,a
+        mov     B, A
+        ani     80h             ; шум включен?
+        ; --
+        mvi     C, 10h
+        jnz     l7c97           ; -> нет, выключен
+        mov     C, D            ; C = 0           // шум включен
+    l7c97:
+;        bit     6,a
+        mov     A, B
+        ani     40h             ; тон включен?
+        mov     A, B
+        ; --
+        mvi     B, 2
+        jnz     l7c9f           ; -> нет
+        mov     B, D            ; B = 0           // тон включен
+    l7c9f:
+;        ld      e,2(ix)
+        dcx     H
+;       ld      a,0(ix)
+        mov     D, M            ; A = bit 0-3 - громкость, 4-7 - старшие биты смещения тона
+        inx     H
+        inx     H
+        mov     E, M            ; E = смещение тона (младший байт)
+        ; --
+        ani     1Fh
+        mov     H, A            ; H = значение шума
+
+        mov     A, D
+        ani     0Fh
+        mov     L, A            ; L = громкость
+        mov     A, D
+        rrc
+        rrc
+        rrc
+        rrc
+        ani     0Fh
+        mov     D, A            ; D = старшие биты смещения тона
+;        bit     5,1(ix)
+        pop     PSW
+        ani     20h             ; A = направление сдвига (0- минус к частоте, 1-плюс к частоте)
+        ; --
+        rz
+;        set     4,d
+        mov     A, D
+        ori     10h
+        mov     D, A            ; устанавливаем признак прибавки тона к частоте
+        ; --
+        ret
+
+
+
+;------------------------------------------------------------------------
+; переход к следующему паттерну
+;------------------------------------------------------------------------
+; на входе:
+;    curOrd - номер текущего паттерна в order list
+; на выходе:
+; destroy: ALL
+nexPat:
+        lda     curOrd
+        mov     C, A
+        lxi     H, lenOrd
+        cmp     M
+        jc      @nwOrd
+        ; достигли конца таблицы Orders
+        lda     plFlag
+        ori     1
+        sta     plFlag          ; выставляем признак окончания
+        xra     A               ; переходим в начало списка паттернов
+        mov     C, A
+    @nwOrd:
+        inr     A
+        sta     curOrd
+;        ld      de,(ordAdr)
+        lhld    ordAdr
+        xchg
+        ; --
+        mov     L, C
+        mvi     H, 0
+        dad     H
+        dad     D               ; HL = &OrderList[curOrd-1]
+        mov     A, M
+        mov     C, A            ; C = номер паттерна для данной позиции
+        sta     patNum
+        inx     H
+        mov     A, M            ; A = смещение тона для паттерна
+        sta     shTone+1
+        mov     A, C
+        lhld    patAdr
+        lxi     B, 7            ; BC = sizeof (PATTERN_ELEM)
+        call    fndRec
+        inx     H               ; пропускаем номер элемента
+        call    cnvAdr
+;        ld      (patA),de
+        xchg
+        shld    patA
+        xchg
+        ; --
+        call    cnvAdr
+;        ld      (patB),de
+        xchg
+        shld    patB
+        xchg
+        ; --
+        call    cnvAdr
+;        ld      (patC),de
+        xchg
+        shld    patC
+        xchg
+        ; --
+        ret
+
+;------------------------------------------------------------------------
+; декремент счетчика задержки между проигрыванием нот
+;------------------------------------------------------------------------
+; на входе:
+;    HL - адрес блока параметров (IX)
+; destroy: A, HL
+decCnt:
+;        dec     2(ix)
+        inx     H
+        inx     H
+        dcr     M               ; (IX+2) = (IX+2) - 1
+        ; --
+        rp                      ; if (IX+2) >= 0 then RETURN
+;        ld      a,-1(ix)
+        dcx     H
+        dcx     H
+        dcx     H
+        mov     A, M
+;        ld      2(ix),a
+        inx     H
+        inx     H
+        inx     H
+        mov     M, A            ; (IX+2) = (IX-1)
+        ; --
+        ret
+
+
+
+;------------------------------------------------------------------------
+; проигрывание музона (вызывается раз в 1/50 секунды)
+;------------------------------------------------------------------------
+STPLAY:
+        lda     plFlag
+        mov     C, A
+        ani     10b             ; loop enable?
+        jnz     @RUNPL          ; -> yes
+        mov     A, C
+        ani     1               ; stop play?
+        rnz                     ; -> yes
+  @RUNPL:
+        lda     delCnt
+        dcr     A
+        sta     delCnt
+        jnz     doPlay
+    ; пора делать выборку данных для проигрывателя
+        lda     nDelay
+        sta     delCnt          ; delCnt = nDelay
+       ; канал A
+;        ld      ix,#IXchA
+        lxi     H, IXchA
+        shld    IX
+        ; --
+        call    decCnt          ; не пора ли играть след. ноту на канале A?
+        jp      @playB
+        lhld    patA
+        mov     A, M
+        inr     A               ; if (A = 0xFF) then
+        cz      nexPat          ;     подгружаем следующий паттерн
+        lhld    patA
+        call    getPat          ; обрабатываем очередную ноту
+        shld    patA            ; сохраняем текущую позицию в паттерне A
+    @playB:
+;        ld      ix,#IXchB
+        lxi     H, IXchB
+        shld    IX
+        ; --
+        call    decCnt
+        jp      @playC
+        lhld    patB
+        call    getPat
+        shld    patB
+    @playC:
+;        ld      ix,#IXchC
+        lxi     H, IXchC
+        shld    IX
+        ; --
+        call    decCnt
+        jp      doPlay
+        lhld    patC
+        call    getPat
+        shld    patC
+        jmp     doPlay
+
+
+;------------------------------------------------------------------------
+;
+;------------------------------------------------------------------------
+; на входе:
+;    HL - адрес паттерна для текущего канала
+;    IX - блок данных канала
+; на выходе:
+;    HL - новый адрес паттерна для текущего канала
+; destroy: BC, DE, A
+getPat:
+        mov     A, M
+        cpi     60h
+        jc      cNote
+        cpi     70h
+        jc      cInstr
+        cpi     80h
+        jc      cOrmn
+        jz      cPause
+        cpi     81h
+        jz      cEmpty
+        cpi     82h
+        jz      cEfOff
+        cpi     8fh
+        jc      cEnvil
+        ; 0xA1 - 0xFE - значение задержки между нотами в канале (в прерываниех)
+        sui     0a1h            ; A = значение задержки
+;        ld      -1(ix),a
+        xchg
+        lhld    IX
+        dcx     H
+        mov     M, A            ; (IX-1) = A
+;        ld      2(ix),a
+        inx     H
+        inx     H
+        inx     H
+        mov     M, A            ; (IX+2) = A
+        xchg
+        ; --
+        inx     H
+        jmp     getPat
+
+
+cNote:  ; 0..0x5F - номер ноты (позиция завершается)
+;        ld      1(ix),a
+;        ld      0(ix),#0x00
+;        ld      7(ix),#0x20
+        xchg
+        lhld    IX
+        mvi     M, 0            ; текущая позиция в сэмпле = 0
+        inx     H
+        mov     M, A            ; нота = A
+        inx     H
+        inx     H
+        inx     H
+        inx     H
+        inx     H
+        inx     H
+        mvi     M, 32           ; осталось позиций в сэмпле = 32
+
+        xchg
+        ; --
+cEmpty: ; 0x81 - пустая нота, позиция завершается
+        inx     H
+        ret
+
+cInstr: ; 0x60-0x6F - номер инструмента (samples)
+        sui     60h
+        xchg
+        ; ищем нужный инструмент по его номеру
+        lxi     B, 63h
+        lhld    smpAdr
+        call    fndRec
+        inx     H               ; skip номер инструмента
+;        ld      3(ix),l
+        mov     C, L
+        mov     B, H
+        lhld    IX
+        inx     H
+        inx     H
+        inx     H
+        mov     M, C            ; (IX+3) = LO( &Samples[n] )
+;        ld      4(ix),h
+        inx     H
+        mov     M, B            ; (IX+4) = HI( &Samples[n] )
+        ; --
+        xchg
+        inx     H
+        jmp     getPat
+
+cPause: ; 0x80 - пауза (отключение канала и завершение позиции)
+        inx     H
+chOff:
+;        ld      7(ix),#0x0ff
+        xchg
+        lhld    IX
+        inx     H
+        inx     H
+        inx     H
+        inx     H
+        inx     H
+        inx     H
+        inx     H
+        mvi     M, 0FFh
+        xchg
+        ; --
+        ret
+
+cEfOff: ; 0x82 - отключение огибающей эффекта (орнамента)
+        xra     A
+        jmp     doOrmn
+
+cOrmn:  ; 0x70-0x7F - номер эффекта (орнамента)
+        sui     70h             ; A - номер эффекта (0 - отключение огибающей)
+    doOrmn:
+        push    H
+        ; ищем нужный орнамент по его номеру
+        lxi     B, 21h
+        lhld    ornAdr
+        call    fndRec
+        inx     H               ; skip номер орнамента
+;        ld      5(ix),l
+;        ld      6(ix),h
+;        ld      -2(ix),#00
+        push    H
+        lhld    IX
+        dcx     H
+        dcx     H
+        mvi     M, 0            ; (IX-2) = 0
+        lxi     D, 7
+        dad     D
+        pop     D
+        mov     M, E            ; (IX+5) = LO( &Ornaments[n] )
+        inx     H
+        mov     M, D            ; (IX+6) = HI( &Ornaments[n] )
+        ; --
+        pop     H
+        inx     H
+        jmp     getPat
+
+cEnvil: ; 0x83-0x8E - номер огибающей (3..14)
+        sui     80h
+        sta     rg0x0D
+        inx     H
+        mov     A, M
+        inx     H
+        sta     rg0x0B
+;        ld      -2(ix),#01
+        xchg
+        lhld    IX
+        dcx     H
+        dcx     H
+        mvi     M, 1            ; (IX-2) = 1
+        xchg
+        ; --
+        push    H
+        xra     A
+        lxi     B, 21h
+        lhld    ornAdr
+        call    fndRec
+        inx     H
+;        ld      5(ix),l
+;        ld      6(ix),h
+        push    H
+        lhld    IX
+        lxi     D, 5
+        dad     D
+        pop     D
+        mov     M,E             ; (IX+5) = LO( &Effects[0] )
+        inx     H
+        mov     M,D             ; (IX+6) = HI( &Effects[0] )
+        ; --
+        pop     H
+        jmp     getPat
+
+
+;------------------------------------------------------------------------
+; выборка следующей позиции в текущем сэмпле
+;------------------------------------------------------------------------
+; на входе:
+;    IX -
+; на выходе:
+;    C  - текущая позиция в сэмпле (????? при достижении конца сэмпла будет неопределен ?????)
+;    (IX+0) - след. позиция в сэмпле
+;    (IX+7) - количество оставшихся выборок в сэмпле
+; destroy: HL, DE, A
+sNxPos:
+ mvi C, 0                        ; ?????
+;        ld      a,7(ix)
+        lhld    IX
+        lxi     D, 7
+        dad     D
+        mov     A, M            ; A - осталось позиций в сэмпле
+        ; --
+        inr     A               ; if (IX+7) = 0xFF then
+        rz                      ;     return
+        dcr     A
+        ; уменьшаем количество оставшихся выборок в сэмпле (IX+7)
+        dcr     A
+;        ld      7(ix),a
+        mov     M, A            ; (IX+7) = (IX+7) - 1
+        ; --
+        ; инкрементируем текущую позицию в сэмпле (IX+0)
+        push    PSW
+;        ld      a,0(ix)
+        lhld    IX
+        mov     A, M            ; A = текущая позиция в сэмпле
+        ; --
+        mov     C, A            ; C = текущая позиция в сэмпле
+        inr     A               ; smpPos++
+        ani     1Fh
+;        ld      0(ix),a
+        lhld    IX
+        mov     M, A            ; (IX+0) = ( (IX+0) + 1) & 0x1F;
+        ; --
+        pop     PSW
+        rnz                     ; if ( (IX+7)-1) > 0 then RETURN
+
+        ; достигли конца сэмпла
+;        ld      e,3(ix)
+;        ld      d,4(ix)
+        lhld    IX
+        inx     H
+        inx     H
+        inx     H
+        mov     E, M
+        inx     H
+        mov     D, M            ; DE = &Sample[curSample]
+        ; --
+        lxi     H, 60h          ; HL = &Sample[curSample].RepeatPosition
+        dad     D
+        mov     A, M            ; A - позиция с которой начинать проигрывание семпла и орнамента
+        dcr     A               ; if pos == 0 then
+        jm      chOff           ;     выключаем канал
+        mov     C, A            ; C = текущая позиция в сэмпле
+        inr     A               ; smpPos++
+        ani     1Fh
+
+        inx     H               ; HL = &Sample[curSample].RepeatLength
+        mov     D, M            ; A - длина сэмпла (количество позиций)
+;        ld      0(ix),a
+        lhld    IX
+        mov     M, A            ; (IX+0) = ( (IX+0) + 1) & 0x1F;
+;        ld      7(ix),a
+        mov     A, D
+        inr     A
+        lxi     D, 7
+        dad     D
+        mov     M, A            ; (IX+7) = осталось поз. в сэмпле
+        ret
+
+
+;------------------------------------------------------------------------
+; заносит в буф. регистр значение для генератора шума
+;------------------------------------------------------------------------
+; на входе:
+;    C  - флаг включения шума (0 - разрешен, >0 - отключен)
+;    H  - значение шума
+; destroy: A
+stNois:
+        mov     A, C
+        ora     A               ; шум требуется включить?
+        rnz                     ; -> нет
+        mov     A, H
+        sta     rg0x06
+        ret
+
+;------------------------------------------------------------------------
+
+;------------------------------------------------------------------------
+; на входе:
+;    HL - адрес регистра громкости
+;     A - громкость
+; destroy: A, BC, DE
+l7e35:
+        mov     M, A
+        xchg                    ; DE = адрес регистра громкости
+;        ld      a,7(ix)
+        lhld    IX
+        lxi     B, 7
+        dad     B
+        mov     A, M            ; A - количество оставшихся позиций в сэмпле
+        ; --
+        inr     A               ; if (IX+7) == 0xFF then
+        rz                      ;     return
+;        ld      a,-2(ix)
+        lxi     B, -9
+        dad     B
+        mov     A, M
+        ; --
+        ora     A               ; if (IX-2) == 0 then
+        rz                      ;     return
+        cpi     2               ; if (IX-2) == 0 then
+        jz      envOff          ;     отключаем генератор огибающей
+;        ld      2(ix),#2       ; ??????? bags ???????
+        mvi     M, 2            ; (IX-2) = 2
+        ; --
+        jmp     l7e4f
+    envOff:
+        xra     A
+        sta     rg0x0D
+    l7e4f:
+;        set     4,(hl)
+        xchg
+        mvi     A, 10h
+        ora     M               ; уровень громкости определяется битами
+        mov     M, A            ; генератора огибающей
+        ret
+
+
+;------------------------------------------------------------------------
+; выборка данных паттерна и их проигрывание
+;------------------------------------------------------------------------
+doPlay:
+        ; канал A
+;        ld      ix,#IXchA
+        lxi     H, IXchA
+        shld    IX
+        ; --
+        call    sNxPos          ; переход на след. позицию сэмпла
+        mov     A, C            ; A - текущая позиция в сэмпле
+        sta     smpPos+1
+;        ld      ix,(pSampA)
+        lhld    pSampA
+        shld    IX
+        ; --
+        call    getSmp
+        ; формируем биты разрешения шума и тона для регистра смесителя
+        mov     A, C            ; A = бит включения шума
+        ora     B               ; A = бит включения шума + бит включения тона
+        rar
+        sta     rg0x07
+;        ld      ix,#IXchA
+        push    H
+        lxi     H, IXchA
+        shld    IX
+;        ld      a,7(ix)
+        push    D
+        lxi     D, 7
+        dad     D
+        pop     D
+        mov     A, M            ; A = остаток позиций в сэмпле
+        pop     H
+        ; --
+        inr     A
+        jz      @volA
+        call    stNois          ; задаем значение шума, если нужно
+        call    getFrq          ; HL = частота канала A,  A - громкость
+        shld    rg0x00
+    @volA:
+        lxi     H, rgVolA
+        call    l7e35
+
+        ; канал B
+;        ld      ix,#IXchB
+        lxi     H, IXchB
+        shld    IX
+        ; --
+        call    sNxPos          ; переход на след. позицию сэмпла
+;        ld      a,7(ix)
+        lhld    IX
+        lxi     D, 7
+        dad     D
+        mov     A, M            ; A - осталось позиций в сэмпле
+        ; --
+        inr     A
+        jz      @volB
+        mov     A, C            ; A - текущая позиция в сэмпле
+        sta     smpPos+1
+;        ld      ix,(pSampB)
+        lhld    pSampB
+        shld    IX
+        call    getSmp
+        ; формируем биты разрешения шума и тона для регистра смесителя
+        lda     rg0x07
+        ora     B
+        ora     C
+        sta     rg0x07
+        call    stNois          ; задаем значение шума, если нужно
+;        ld      ix,#IXchB
+        push    H
+        lxi     H, IXchB
+        shld    IX
+        pop     H
+        ; --
+        call    getFrq          ; HL = частота канала A,  A - громкость
+        shld    rg0x02
+    @volB:
+        lxi     H, rgVolB
+        call    l7e35
+
+        ; канал C
+;        ld      ix,#IXchC
+        lxi     H, IXchC
+        shld    IX
+        ; --
+        call    sNxPos          ; переход на след. позицию сэмпла
+;        ld      a,7(ix)
+        lhld    IX
+        lxi     D, 7
+        dad     D
+        mov     A, M            ; A - осталось позиций в сэмпле
+        ; --
+        inr     A
+        jz      @volC
+        mov     A, C            ; A - текущая позиция в сэмпле
+        sta     smpPos+1
+;        ld      ix,(pSampC)
+        lhld    pSampC
+        shld    IX
+        ; --
+        call    getSmp
+        ; формируем биты разрешения шума и тона для регистра смесителя
+        mov     A, C
+        ora     B               ; clear carry
+        ani     10010b
+        ral
+        mov     C, A
+        lda     rg0x07
+        ora     C
+        sta     rg0x07
+        call    stNois          ; задаем значение шума, если нужно
+;        ld      ix,#IXchC
+        push    H
+        lxi     H, IXchC
+        shld    IX
+        pop     H
+        ; --
+        call    getFrq          ; HL = частота канала A,  A - громкость
+        shld    rg0x04
+    @volC:
+        lxi     H, rgVolC
+        call    l7e35
+        jmp     ldRegs
+
+
+
+;------------------------------------------------------------------------
+;
+;------------------------------------------------------------------------
+; на входе:
+;    IX - блок параметров
+;    DE - смещение тона (12 бит)
+;     L - громкость
+;     B - флаг включения тона
+; на выходе:
+;    HL - частота для генератора
+;     A - громкость
+; destroy:
+getFrq:
+        mov     A, L
+        push    PSW
+        push    D
+;        ld      l,5(ix)
+;        ld      h,6(ix)
+        lhld    IX
+        lxi     D, 5
+        dad     D
+        mov     E, M
+        inx     H
+        mov     D, M
+        xchg                    ; HL = &Ornaments[curOrnm]
+        ; --
+  smpPos:
+        lxi     D, 0            ; DE - текущая позиция в сэмпле
+        dad     D               ; HL = &Ornaments[curOrnm].smpPos
+;        ld      a,1(ix)
+        push    H
+        lhld    IX
+        inx     H
+        mov     A, M            ; A = нота
+        pop     H
+        ; --
+        add     M               ; A = нота+октава
+  shTone:
+        adi     0               ; A = нота+эффект+смещение тона
+
+        ; преобразуем ноту в частоту
+        add     A
+        mov     E, A
+        mvi     D, 0
+        lxi     H, frqTbl
+        dad     D
+        mov     E, M
+        inx     H
+        mov     D, M
+        xchg                    ; HL = freqTable[нота+эффект+смещение тона]
+        pop     D               ; DE = смещение тона (12 бит)
+;        bit     4,d
+        mov     A, D
+        ani     10h             ; знак смещения?
+        jz      subTon
+        mov     A, D
+        ani     0Fh             ; убираем бит знака смещения тона
+        mov     D, A
+        pop     PSW             ; A = громкость
+        dad     D               ; HL = freq + смещение тона
+        ret
+
+subTon: ; вычитаем тон из частоты
+;        and     a               ; сброс CF
+;        sbc     hl,de
+        mov     A, L
+        sub     E
+        mov     L, A
+        mov     A, H
+        sbb     D
+        mov     H, A            ; HL = freq - смещение тона
+        pop     PSW             ; A = громкость
+        ret
+
+
+
+; загружаем регистры AY
+ldRegs:
+        lxi     H, rg0x0D
+        xra     A
+        ora     M
+        mvi     A, 0Dh
+        jnz     l7ff1
+        sui     3
+        dcx     H
+        dcx     H
+        dcx     H
+    l7ff1:
+        push    PSW
+        out     15h             ; номер регистра AY
+        mov     A, M
+        out     14h             ; данные AY
+        dcx     H
+        pop     PSW
+        dcr     A
+        jp      l7ff1
+        ret
+
+
+
+  frqTbl:     ; таблица частот для нот
+        dw 0ef8h, 0e10h, 0d60h, 0c80h, 0bd8h, 0b28h, 0a88h, 09f0h
+        dw 0960h, 08e0h, 0858h, 07e0h, 077ch, 0708h, 06b0h, 0640h
+        dw 05ech, 0594h, 0544h, 04f8h, 04b0h, 0470h, 042ch, 03f0h
+        dw 03beh, 0384h, 0358h, 0320h, 02f6h, 02cah, 02a2h, 027ch
+        dw 0258h, 0238h, 0216h, 01f8h, 01dfh, 01c2h, 01ach, 0190h
+        dw 017bh, 0165h, 0151h, 013eh, 012ch, 011ch, 010bh, 00fch
+        dw 00efh, 00e1h, 00d6h, 00c8h, 00bdh, 00b2h, 00a8h, 009fh
+        dw 0096h, 008eh, 0085h, 007eh, 0077h, 0070h, 006bh, 0064h
+        dw 005eh, 0059h, 0054h, 004fh, 004bh, 0047h, 0042h, 003fh
+        dw 003bh, 0038h, 0035h, 0032h, 002fh, 002ch, 002ah, 0027h
+        dw 0025h, 0023h, 0021h, 001fh, 001dh, 001ch, 001ah, 0019h
+        dw 0017h, 0016h, 0015h, 0013h, 0012h, 0011h, 0010h, 000fh
+
+
+  div12: db 0,0,0,0,0,0
+         db 0,0,0,0,0,0
+         db 1,1,1,1,1,1
+         db 1,1,1,1,1,1
+         db 2,2,2,2,2,2
+         db 2,2,2,2,2,2
+         db 3,3,3,3,3,3
+         db 3,3,3,3,3,3
+         db 4,4,4,4,4,4
+         db 4,4,4,4,4,4
+         db 5,5,5,5,5,5
+         db 5,5,5,5,5,5
+         db 6,6,6,6,6,6
+         db 6,6,6,6,6,6
+         db 7,7,7,7,7,7
+         db 7,7,7,7,7,7
+
+
+DSEG
+
+  plFlag:       ds 1    ; bit 0: stop play
+                        ; bit 1: loop flag
+  IX:           ds 2
+
+  ordAdr:       ds 2    ; адрес таблицы позиций (Order Lists)
+  ornAdr:       ds 2    ; адрес таблицы Ornaments
+  patAdr:       ds 2    ; адрес таблицы паттернов (Patterns)
+  smpAdr:       ds 2    ; адрес таблицы сэмплов (инструментов) Samples
+  patNum:       ds 1    ; номер текущего паттерна
+  nDelay:       ds 1    ; число прерываний (задержка) между нотами
+  delCnt:       ds 1    ; осталось прерываний между нотами
+  lenOrd:       ds 1    ; количество элементов в списке позиций (orders)
+  patA:         ds 2    ; адрес паттерна для канала A
+  patB:         ds 2    ; адрес паттерна для канала B
+  patC:         ds 2    ; адрес паттерна для канала C
+
+  nulPat:       ds 1    ; = 0xff     ( pattern-заглушка нулевой длины )
+
+
+  ; канал A
+  ul7c46:       ds 1    ; -2: 1-огибающая, 2-откл. генератора огибающей,0-нет огибающей
+                ds 1    ; -1: задержка между нотами
+  IXchA:        ds 1    ;  0: текущая позиция в сэмпле
+                ds 1    ; +1: нота
+                ds 1    ; +2: счетчик задержки между нотами
+  pSampA:       ds 2    ; +3: адрес инструмента (Sample)
+  nOrnmA:       ds 2    ; +5: адрес орнамента (Ornaments, Effects)
+  smCntA:       ds 1    ; +7: осталось позиций в сэмпле канала
+
+; канал B
+                ds 1
+                ds 1
+  IXchB:        ds 1
+                ds 1
+                ds 1
+  pSampB:       ds 2
+  nOrnmB:       ds 2
+  smCntB:       ds 1
+
+; канал C
+                ds 1
+                ds 1
+  IXchC:        ds 1
+                ds 1
+                ds 1
+  pSampC:       ds 2
+  nOrnmC:       ds 2
+  smCntC:       ds 1
+
+
+  curOrd:       ds 1    ; позиция в Order List [1..lenOrd]
+
+; регистры AY
+  rg0x00:       ds 2    ; делитель входной частоты канала A
+  rg0x02:       ds 2    ; делитель входной частоты канала B
+  rg0x04:       ds 2    ; делитель входной частоты канала C
+  rg0x06:       ds 1    ; 5-разрядное значение периода для псевдослучайного генератора шума
+  rg0x07:       ds 1    ; микшер, содержащий по два бита для каждого канала,
+                        ; в зависимости от которых к каналам подмешивается
+                        ; сигнал генератора шума, либо генератор огибающей.
+  rgVolA:       ds 1    ; громкость канала A + бит разрешения использования огибающей
+  rgVolB:       ds 1    ; громкость канала B + бит разрешения использования огибающей
+  rgVolC:       ds 1    ; громкость канала C + бит разрешения использования огибающей
+  rg0x0B:       ds 2    ; частота
+  rg0x0D:       ds 1    ; и форма огибающей
+
+
+
+END

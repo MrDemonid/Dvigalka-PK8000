@@ -1,0 +1,4 @@
+declare
+    tblAboutStr(24) address external,
+    tblAboutImg(10) HLPIMG external;
+
