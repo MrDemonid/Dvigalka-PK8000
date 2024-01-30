@@ -2,7 +2,8 @@
 BREAK ON
 
 :: set PL/M tools and sources paths
-set SOURCES=..\SOURCE\TAPE
+set SOURCES=.
+set BINARY=..\..\bin
 
 if %PLM80% == "" goto nodef
 set PLMBIN=%PLM80%\BIN
@@ -11,6 +12,9 @@ goto clearprev
 
 :nodef
 :: !!! predefined path not found, use default !!!
+echo WARNING!!! Path for PL/M not found!
+echo Use default path
+pause
 set PLMBIN=C:\PLMTOOL\BIN
 set PLMLIB=C:\PLMTOOL\LIB
 
@@ -18,6 +22,7 @@ set PLMLIB=C:\PLMTOOL\LIB
 :: clear previous files
 del %SOURCES%\*.obj
 del %SOURCES%\*.lst
+del %BINARY%\dvig.cas
 del dvig.cas
 
 
@@ -56,7 +61,7 @@ cls
 %PLMBIN%\LOCATE dvig.lnk TO dvig.kz CODE(3FDAH) STACKSIZE(100) MAP PRINT(dvig.tra)
 %PLMBIN%\OBJCPM dvig.kz
 @ECHO OFF
-copy /b %SOURCES%\dvig.com .\dvig.cas
+copy /b %SOURCES%\dvig.com %BINARY%\dvig.cas
 if errorlevel == 1 goto error
 goto end
 
