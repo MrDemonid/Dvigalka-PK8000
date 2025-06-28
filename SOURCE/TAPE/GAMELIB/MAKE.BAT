@@ -2,7 +2,7 @@
 BREAK ON
 
 :: set PL/M tools and sources paths
-if %PLM80% == "" goto nodef
+if "%PLM80%" == "" goto nodef
 set PLMBIN=%PLM80%\BIN
 goto clearprev
 
